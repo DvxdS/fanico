@@ -9,6 +9,7 @@ import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { OrgScopeInterceptor } from './common/interceptors/org-scope.interceptor';
 import { AuthModule } from './modules/auth/auth.module';
+import { TicketsModule } from './modules/tickets/tickets.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AuthModule } from './modules/auth/auth.module';
       }),
     }),
     AuthModule,
+    TicketsModule,
   ],
   controllers: [AppController],
   providers: [

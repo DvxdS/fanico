@@ -1,0 +1,200 @@
+{
+  "info": {
+    "name": "Fanico API — Ticket Lifecycle (Step 2)",
+    "description": "End-to-end ticket flow: login -> create draft -> add item -> add photo -> commit -> to-production -> ready -> record payment -> auto-close. Set baseUrl, and the shopId/customerId/serviceId from `pnpm seed` output. Login stores {{token}}; Create Ticket stores {{ticketId}}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" },
+    { "key": "shopId", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "serviceId", "value": "" },
+    { "key": "ticketId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.collectionVariables.set('token', json.accessToken);",
+              "pm.test('got token', () => pm.expect(json.accessToken).to.be.a('string'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"+2250700000001\",\n  \"password\": \"owner-password\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Ticket (DRAFT)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.collectionVariables.set('ticketId', json.id);",
+              "pm.test('is DRAFT', () => pm.expect(json.status).to.eql('DRAFT'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets", "host": ["{{baseUrl}}"], "path": ["tickets"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shopId\": \"{{shopId}}\",\n  \"customerId\": \"{{customerId}}\",\n  \"promisedPickupAt\": \"2026-07-20T17:00:00.000Z\",\n  \"items\": [\n    { \"serviceId\": \"{{serviceId}}\", \"quantity\": 2 }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "Add Item",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/items", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "items"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"serviceId\": \"{{serviceId}}\",\n  \"quantity\": 1,\n  \"modifiers\": { \"starch\": \"light\" }\n}"
+        }
+      }
+    },
+    {
+      "name": "Add Photo (intake_overview)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/photos", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "photos"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"storagePath\": \"uploads/tickets/overview.jpg\",\n  \"context\": \"intake_overview\",\n  \"caption\": \"Front view at intake\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Commit (DRAFT -> OPEN)",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/commit", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "commit"] }
+      }
+    },
+    {
+      "name": "To Production (OPEN -> IN_PRODUCTION) [interim]",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/to-production", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "to-production"] }
+      }
+    },
+    {
+      "name": "Ready (IN_PRODUCTION -> READY) [interim]",
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/ready", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "ready"] }
+      }
+    },
+    {
+      "name": "Record Payment (may auto-close)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/payments", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "payments"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"payments\": [\n    { \"method\": \"CASH\", \"amountXof\": 4500, \"externalReference\": \"\", \"notes\": \"Paid at pickup\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "Close on Credit (READY -> PARTIALLY_CLOSED) [manager+]",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/close-on-credit", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "close-on-credit"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Regular customer, will settle balance tomorrow\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Dispute (-> DISPUTED)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/dispute", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "dispute"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Garment returned stained\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Cancel (OPEN -> CANCELLED) [manager+]",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}/cancel", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}", "cancel"] },
+        "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Customer changed their mind\"\n}" }
+      }
+    },
+    {
+      "name": "List Tickets (filters + pagination)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/tickets?status=&shopId=&from=&to=&limit=20&offset=0",
+          "host": ["{{baseUrl}}"],
+          "path": ["tickets"],
+          "query": [
+            { "key": "status", "value": "" },
+            { "key": "shopId", "value": "" },
+            { "key": "from", "value": "" },
+            { "key": "to", "value": "" },
+            { "key": "limit", "value": "20" },
+            { "key": "offset", "value": "0" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Ticket by Id",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/tickets/{{ticketId}}", "host": ["{{baseUrl}}"], "path": ["tickets", "{{ticketId}}"] }
+      }
+    },
+    {
+      "name": "Get Ticket by Number",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/tickets/by-number/PLT-2026-0001", "host": ["{{baseUrl}}"], "path": ["tickets", "by-number", "PLT-2026-0001"] }
+      }
+    },
+    {
+      "name": "Me (current user + roles)",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/me", "host": ["{{baseUrl}}"], "path": ["me"] }
+      }
+    }
+  ]
+}

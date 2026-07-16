@@ -32,6 +32,11 @@ export class Shop {
   @Column({ type: 'varchar' })
   name: string;
 
+  // Short prefix used in human-readable ticket numbers, e.g. "PLT" -> PLT-2026-0001.
+  // Nullable: generation falls back to the shop name's initials when unset.
+  @Column({ type: 'varchar', length: 12, nullable: true })
+  code: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   address: string | null;
 

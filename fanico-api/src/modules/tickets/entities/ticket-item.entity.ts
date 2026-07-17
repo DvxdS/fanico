@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Ticket } from './ticket.entity';
 import { Service } from '../../catalog/entities/service.entity';
+import { Batch } from '../../production/entities/batch.entity';
 
 @Entity('ticket_items')
 export class TicketItem {
@@ -43,6 +44,15 @@ export class TicketItem {
 
   @Column({ type: 'integer' })
   lineTotalXof: number;
+
+  // null = unbatched (sitting on an OPEN ticket); set when added to a batch.
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  batchId: string | null;
+
+  @ManyToOne(() => Batch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'batchId' })
+  batch: Batch | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

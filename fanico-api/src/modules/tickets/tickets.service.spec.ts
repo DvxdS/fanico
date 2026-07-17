@@ -20,6 +20,7 @@ describe('TicketsService — org scoping', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   });
 

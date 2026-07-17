@@ -31,5 +31,6 @@ import { TicketsController } from './tickets.controller';
   ],
   providers: [TicketsService, TicketStateMachineService],
   controllers: [TicketsController],
+  exports: [TicketsService],
 })
 export class TicketsModule {}

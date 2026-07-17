@@ -16,6 +16,10 @@ import {
   ServiceStatus,
   ServiceUnit,
 } from './modules/catalog/entities/service.entity';
+import {
+  Equipment,
+  EquipmentType,
+} from './modules/production/entities/equipment.entity';
 
 /**
  * Demo seed: 1 org, 1 shop (with code), 1 owner user (org-wide OWNER role),
@@ -35,6 +39,7 @@ async function seed() {
       const roleRepo = manager.getRepository(UserShopRole);
       const customerRepo = manager.getRepository(Customer);
       const serviceRepo = manager.getRepository(Service);
+      const equipmentRepo = manager.getRepository(Equipment);
 
       let org = await orgRepo.findOne({ where: { slug: 'fanico-demo' } });
       if (!org) {
@@ -145,6 +150,21 @@ async function seed() {
         services.push(svc);
       }
 
+      let washer = await equipmentRepo.findOne({
+        where: { orgId: org.id, shopId: shop.id, name: 'Washer #1' },
+      });
+      if (!washer) {
+        washer = await equipmentRepo.save(
+          equipmentRepo.create({
+            orgId: org.id,
+            shopId: shop.id,
+            name: 'Washer #1',
+            type: EquipmentType.WASHER,
+            capacityKg: 12,
+          }),
+        );
+      }
+
       // eslint-disable-next-line no-console
       console.log('Seed complete:');
       // eslint-disable-next-line no-console
@@ -158,6 +178,8 @@ async function seed() {
         // eslint-disable-next-line no-console
         console.log(`  service:  ${s.name} = ${s.basePriceXof} XOF (${s.id})`),
       );
+      // eslint-disable-next-line no-console
+      console.log(`  equipment:${washer.name} (${washer.id})`);
       // eslint-disable-next-line no-console
       console.log(`  login:    phone=${OWNER_PHONE}  password=${OWNER_PASSWORD}`);
     });

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   Between,
   DataSource,
@@ -14,6 +15,10 @@ import {
   Repository,
 } from 'typeorm';
 import { Ticket, TicketStatus } from './entities/ticket.entity';
+import {
+  TICKET_TRANSITION_EVENT,
+  TicketTransitionEvent,
+} from './events/ticket-transition.event';
 import { TicketItem } from './entities/ticket-item.entity';
 import { TicketPhoto } from './entities/ticket-photo.entity';
 import { TicketEvent } from './entities/ticket-event.entity';
@@ -40,6 +45,7 @@ export class TicketsService {
     private readonly dataSource: DataSource,
     private readonly stateMachine: TicketStateMachineService,
     private readonly paymentsService: PaymentsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // --- creation & DRAFT edits ---------------------------------------------
@@ -169,13 +175,17 @@ export class TicketsService {
     id: string,
     actorUserId: string,
   ): Promise<Ticket> {
+    let evt: TicketTransitionEvent | null = null;
     await this.dataSource.transaction(async (manager) => {
       const ticket = await this.loadOrFail(manager, orgId, id);
+      const before = ticket.status;
       await this.stateMachine.markReady(manager, ticket, actorUserId);
       // A ticket paid in full up front (deposit while OPEN) should close as
       // soon as it is ready — not wait for a further payment event.
       await this.maybeAutoClose(manager, ticket, actorUserId);
+      evt = this.buildEvent(orgId, ticket, before);
     });
+    this.emitTransition(evt);
     return this.findOne(orgId, id);
   }
 
@@ -218,8 +228,10 @@ export class TicketsService {
     actorUserId: string,
     dto: RecordPaymentsDto,
   ): Promise<Ticket> {
-    return this.dataSource.transaction(async (manager) => {
+    let evt: TicketTransitionEvent | null = null;
+    const result = await this.dataSource.transaction(async (manager) => {
       const ticket = await this.loadOrFail(manager, orgId, id);
+      const before = ticket.status;
 
       const blocked: TicketStatus[] = [
         TicketStatus.DRAFT,
@@ -259,9 +271,59 @@ export class TicketsService {
       await manager.save(ticket);
 
       await this.maybeAutoClose(manager, ticket, actorUserId);
+      evt = this.buildEvent(orgId, ticket, before);
 
       return this.findOneWithin(manager, orgId, id);
     });
+    this.emitTransition(evt);
+    return result;
+  }
+
+  // --- production integration (called within a batch transaction) ----------
+
+  /**
+   * Move a ticket OPEN -> IN_PRODUCTION when its items are first batched.
+   * No-op if the ticket is not OPEN. Runs inside the caller's transaction.
+   */
+  async moveToProductionFromBatch(
+    manager: EntityManager,
+    orgId: string,
+    ticketId: string,
+    actorUserId: string,
+  ): Promise<TicketTransitionEvent | null> {
+    const ticket = await manager.findOne(Ticket, {
+      where: { id: ticketId, orgId },
+    });
+    if (ticket && ticket.status === TicketStatus.OPEN) {
+      const before = ticket.status;
+      await this.stateMachine.toProduction(manager, ticket, actorUserId);
+      return this.buildEvent(orgId, ticket, before);
+    }
+    return null;
+  }
+
+  /**
+   * Move a ticket IN_PRODUCTION -> READY once production reports all its items
+   * ready, then auto-close if already fully paid. No-op unless IN_PRODUCTION.
+   * Runs inside the caller's transaction. Returns the transition event (for the
+   * caller to emit after commit) or null if nothing changed.
+   */
+  async markReadyFromProduction(
+    manager: EntityManager,
+    orgId: string,
+    ticketId: string,
+    actorUserId: string,
+  ): Promise<TicketTransitionEvent | null> {
+    const ticket = await manager.findOne(Ticket, {
+      where: { id: ticketId, orgId },
+    });
+    if (ticket && ticket.status === TicketStatus.IN_PRODUCTION) {
+      const before = ticket.status;
+      await this.stateMachine.markReady(manager, ticket, actorUserId);
+      await this.maybeAutoClose(manager, ticket, actorUserId);
+      return this.buildEvent(orgId, ticket, before);
+    }
+    return null;
   }
 
   // --- reads ---------------------------------------------------------------
@@ -321,11 +383,41 @@ export class TicketsService {
     id: string,
     fn: (manager: EntityManager, ticket: Ticket) => Promise<Ticket>,
   ): Promise<Ticket> {
+    let evt: TicketTransitionEvent | null = null;
     await this.dataSource.transaction(async (manager) => {
       const ticket = await this.loadOrFail(manager, orgId, id);
+      const before = ticket.status;
       await fn(manager, ticket);
+      evt = this.buildEvent(orgId, ticket, before);
     });
+    this.emitTransition(evt);
     return this.findOne(orgId, id);
+  }
+
+  /** Build a transition event if the status actually changed, else null. */
+  private buildEvent(
+    orgId: string,
+    ticket: Ticket,
+    before: TicketStatus,
+  ): TicketTransitionEvent | null {
+    if (ticket.status === before) {
+      return null;
+    }
+    return {
+      orgId,
+      ticketId: ticket.id,
+      customerId: ticket.customerId,
+      ticketNumber: ticket.ticketNumber,
+      before,
+      after: ticket.status,
+    };
+  }
+
+  /** Emit a ticket transition after its transaction has committed. */
+  private emitTransition(evt: TicketTransitionEvent | null): void {
+    if (evt) {
+      this.eventEmitter.emit(TICKET_TRANSITION_EVENT, evt);
+    }
   }
 
   /**

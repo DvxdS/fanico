@@ -20,9 +20,16 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Audit } from '../../common/decorators/audit.decorator';
+import { AuditAction } from '../audit/entities/audit-log.entity';
 import { CurrentOrgId } from '../../common/decorators/current-org-id.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Role } from '../users/entities/user-shop-role.entity';
+import {
+  ALL_STAFF,
+  FRONT_DESK,
+  MANAGERS,
+  PRODUCTION,
+} from '../../common/constants/role-groups';
 import type { AuthenticatedUser } from '../../common/types/jwt-payload.interface';
 import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -45,6 +52,7 @@ export class TicketsController {
   constructor(private readonly ticketsService: TicketsService) {}
 
   @Post()
+  @Roles(...FRONT_DESK)
   @ApiOperation({ summary: 'Create a new ticket in DRAFT status' })
   @ApiResponse({ status: 201, description: 'Draft ticket created' })
   @ApiResponse({ status: 400, description: 'Invalid shop/customer/service or bad payload' })
@@ -57,6 +65,7 @@ export class TicketsController {
   }
 
   @Patch(':id')
+  @Roles(...FRONT_DESK)
   @ApiOperation({ summary: 'Update a DRAFT ticket (notes, promised pickup)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket updated' })
@@ -71,6 +80,7 @@ export class TicketsController {
   }
 
   @Post(':id/items')
+  @Roles(...FRONT_DESK)
   @ApiOperation({ summary: 'Add a line item to a DRAFT ticket' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 201, description: 'Item added, total recomputed' })
@@ -85,6 +95,7 @@ export class TicketsController {
   }
 
   @Post(':id/photos')
+  @Roles(...FRONT_DESK)
   @ApiOperation({ summary: 'Attach a photo (path/URL only in this step)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 201, description: 'Photo attached' })
@@ -100,6 +111,8 @@ export class TicketsController {
 
   @Post(':id/commit')
   @HttpCode(200)
+  @Roles(...FRONT_DESK)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({ summary: 'Commit a DRAFT ticket -> OPEN (needs item + intake photo)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket committed to OPEN' })
@@ -115,6 +128,8 @@ export class TicketsController {
 
   @Post(':id/to-production')
   @HttpCode(200)
+  @Roles(...PRODUCTION)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({
     summary: 'OPEN -> IN_PRODUCTION (interim manual transition; Step 3 automates via batches)',
   })
@@ -132,6 +147,8 @@ export class TicketsController {
 
   @Post(':id/ready')
   @HttpCode(200)
+  @Roles(...PRODUCTION)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({
     summary: 'IN_PRODUCTION -> READY (interim manual transition; Step 3 automates via batches)',
   })
@@ -149,7 +166,8 @@ export class TicketsController {
 
   @Post(':id/cancel')
   @HttpCode(200)
-  @Roles(Role.OWNER, Role.SHOP_MANAGER)
+  @Roles(...MANAGERS)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({ summary: 'Cancel an OPEN ticket (manager+)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket cancelled' })
@@ -167,6 +185,8 @@ export class TicketsController {
 
   @Post(':id/dispute')
   @HttpCode(200)
+  @Roles(...FRONT_DESK)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({ summary: 'Open a dispute on a ticket (any state except closed/archived)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket marked DISPUTED' })
@@ -183,6 +203,8 @@ export class TicketsController {
 
   @Post(':id/payments')
   @HttpCode(201)
+  @Roles(...FRONT_DESK)
+  @Audit('payment', AuditAction.CREATE)
   @ApiOperation({ summary: 'Record one or more payments (may auto-close a READY ticket)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 201, description: 'Payment(s) recorded' })
@@ -199,7 +221,8 @@ export class TicketsController {
 
   @Post(':id/close-on-credit')
   @HttpCode(200)
-  @Roles(Role.OWNER, Role.SHOP_MANAGER)
+  @Roles(...MANAGERS)
+  @Audit('ticket', AuditAction.TRANSITION)
   @ApiOperation({ summary: 'READY -> PARTIALLY_CLOSED, releasing before full payment (manager+)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket partially closed on credit' })
@@ -216,6 +239,7 @@ export class TicketsController {
   }
 
   @Get()
+  @Roles(...ALL_STAFF)
   @ApiOperation({ summary: 'List tickets (org-scoped) with filters + pagination' })
   @ApiResponse({ status: 200, description: 'Paged list of tickets' })
   findAll(
@@ -226,6 +250,7 @@ export class TicketsController {
   }
 
   @Get('by-number/:number')
+  @Roles(...ALL_STAFF)
   @ApiOperation({ summary: 'Fetch a ticket by its human-readable number' })
   @ApiParam({ name: 'number', description: 'Ticket number, e.g. PLT-2026-0001' })
   @ApiResponse({ status: 200, description: 'Ticket found' })
@@ -238,6 +263,7 @@ export class TicketsController {
   }
 
   @Get(':id')
+  @Roles(...ALL_STAFF)
   @ApiOperation({ summary: 'Fetch a ticket by id (with items, photos, payments, events)' })
   @ApiParam({ name: 'id', description: 'Ticket id (uuid)' })
   @ApiResponse({ status: 200, description: 'Ticket found' })

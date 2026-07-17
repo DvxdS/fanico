@@ -10,6 +10,7 @@ export interface AppConfig {
     secret: string;
     expiresIn: string;
   };
+  whatsappEnabled: boolean;
 }
 
 export default (): AppConfig => ({
@@ -20,4 +21,5 @@ export default (): AppConfig => ({
     secret: process.env.JWT_SECRET as string,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   },
+  whatsappEnabled: process.env.WHATSAPP_ENABLED === 'true',
 });
